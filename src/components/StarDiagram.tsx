@@ -5,169 +5,149 @@ interface RayData {
   value: number;
   total: number;
   unit: string;
-  color: string;
   angle: number;
 }
 
 interface MiniRayData {
-  label: string;
-  icon: string;
-  active: boolean;
+  id: string;
   angle: number;
 }
 
 const rays: RayData[] = [
-  { label: 'Минуты', value: 340, total: 600, unit: 'мин', color: '#FFD100', angle: 0 },
-  { label: 'SMS', value: 28, total: 50, unit: 'шт', color: '#FFD100', angle: 90 },
-  { label: 'Интернет', value: 12.4, total: 30, unit: 'ГБ', color: '#FFD100', angle: 180 },
-  { label: 'AI-токены', value: 45000, total: 100000, unit: 'шт', color: '#FFD100', angle: 270 },
+  { label: 'Минуты', value: 340, total: 600, unit: 'мин', angle: 0 },
+  { label: 'SMS', value: 28, total: 50, unit: 'шт', angle: 90 },
+  { label: 'Интернет', value: 12.4, total: 30, unit: 'ГБ', angle: 180 },
+  { label: 'AI', value: 45000, total: 100000, unit: 'токенов', angle: 270 },
 ];
 
-const miniRays: MiniRayData[] = [
-  { label: 'Секретарь', icon: '🤖', active: true, angle: 45 },
-  { label: 'Остаток', icon: '📦', active: true, angle: 135 },
-  { label: 'Подписки', icon: '✦', active: false, angle: 225 },
-  { label: 'Роуминг', icon: '✈️', active: false, angle: 315 },
+// 8 малых лучей равномерно, между большими (по диагоналям + промежуточные)
+const miniRayAngles = [45, 90 + 45, 180 + 45, 270 + 45];
+// Дополнительные между диагональными
+const extraAngles = [22, 67, 112, 157, 202, 247, 292, 337];
+
+const ALL_MINI: MiniRayData[] = [
+  { id: 'secretary', angle: 22 },
+  { id: 'savings', angle: 67 },
+  { id: 'subscriptions', angle: 112 },
+  { id: 'roaming', angle: 157 },
+  { id: 'novpn', angle: 202 },
+  { id: 'family', angle: 247 },
+  { id: 'antivirus', angle: 292 },
+  { id: 'calls', angle: 337 },
 ];
 
-const RAY_LENGTH = 105;
-const MINI_RAY_LENGTH = 62;
 const CX = 160;
 const CY = 160;
+const RAY_START = 52;
+const RAY_LENGTH = 118;
+const MINI_START = 48;
+const MINI_LENGTH = 82;
 
 function polarToXY(angleDeg: number, r: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return {
-    x: CX + r * Math.cos(rad),
-    y: CY + r * Math.sin(rad),
-  };
+  return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
 }
 
-function formatValue(val: number, unit: string): string {
-  if (unit === 'шт' && val >= 1000) return `${(val / 1000).toFixed(0)}К`;
-  if (unit === 'шт' && val < 1000) return `${val}`;
+function formatVal(val: number, unit: string) {
+  if (unit === 'токенов') return val >= 1000 ? `${Math.round(val / 1000)}К` : `${val}`;
   if (unit === 'ГБ') return val.toFixed(1);
   return `${val}`;
 }
 
-export default function StarDiagram() {
+interface Props {
+  activeOptions: Record<string, boolean>;
+  onToggleMini?: (id: string) => void;
+}
+
+export default function StarDiagram({ activeOptions, onToggleMini }: Props) {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const anim = requestAnimationFrame(() => {
-        let start: number | null = null;
-        const step = (ts: number) => {
-          if (!start) start = ts;
-          const p = Math.min((ts - start) / 800, 1);
-          setProgress(p);
-          if (p < 1) requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      });
-      return () => cancelAnimationFrame(anim);
-    }, 300);
-    return () => clearTimeout(timer);
+    let raf: number;
+    const timeout = setTimeout(() => {
+      let start: number | null = null;
+      const step = (ts: number) => {
+        if (!start) start = ts;
+        const p = Math.min((ts - start) / 900, 1);
+        setProgress(p);
+        if (p < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+    }, 200);
+    return () => { clearTimeout(timeout); cancelAnimationFrame(raf); };
   }, []);
 
   return (
-    <div className="relative flex items-center justify-center w-full">
-      <svg
-        viewBox="0 0 320 320"
-        width="320"
-        height="320"
-        className="animate-star-glow"
-        style={{ overflow: 'visible' }}
-      >
-        {/* Фоновые кольца */}
-        <circle cx={CX} cy={CY} r="52" fill="none" stroke="#F0F0F0" strokeWidth="1" />
-        <circle cx={CX} cy={CY} r="80" fill="none" stroke="#F5F5F5" strokeWidth="0.5" strokeDasharray="3 4" />
+    <div className="flex items-center justify-center w-full select-none">
+      <svg viewBox="0 0 320 320" width="320" height="320" style={{ overflow: 'visible' }}>
 
-        {/* Большие лучи — заливка прогресса */}
+        {/* ─── БОЛЬШИЕ ЛУЧИ — прогресс-трек ─── */}
         {rays.map((ray) => {
-          const end = polarToXY(ray.angle, RAY_LENGTH);
-          const progressEnd = polarToXY(ray.angle, 32 + (RAY_LENGTH - 32) * (ray.value / ray.total) * progress);
-          const tip = polarToXY(ray.angle, RAY_LENGTH + 2);
-
-          const perpAngle = ray.angle + 90;
-          const hw = 7;
-          const p1 = polarToXY(ray.angle, 32);
-          const perpRad = ((perpAngle - 90) * Math.PI) / 180;
-          const dx = hw * Math.cos(perpRad);
-          const dy = hw * Math.sin(perpRad);
-
-          const rayStart = polarToXY(ray.angle, 30);
-          const rayEnd = polarToXY(ray.angle, RAY_LENGTH);
-
-          // Ромбовидный наконечник
-          const diam = 6;
-          const dEnd = polarToXY(ray.angle, RAY_LENGTH + diam);
-          const dSide1 = polarToXY(ray.angle + 90, diam / 2);
-          const dSide2 = polarToXY(ray.angle - 90, diam / 2);
-          const diamondPath = `M ${tip.x} ${tip.y} L ${dSide1.x + (tip.x - CX) * 0} ${dSide1.y}`;
-
-          // Линия трека (серая)
-          const trackStart = polarToXY(ray.angle, 30);
-          const trackEnd = polarToXY(ray.angle, RAY_LENGTH);
-
-          // Линия прогресса
-          const progEnd = polarToXY(ray.angle, 30 + (RAY_LENGTH - 30) * (ray.value / ray.total) * progress);
-
-          // Позиция текста
-          const textPos = polarToXY(ray.angle, RAY_LENGTH + 26);
-          const subTextPos = polarToXY(ray.angle, RAY_LENGTH + 42);
+          const trackS = polarToXY(ray.angle, RAY_START);
+          const trackE = polarToXY(ray.angle, RAY_LENGTH);
+          const ratio = (ray.value / ray.total) * progress;
+          const progE = polarToXY(ray.angle, RAY_START + (RAY_LENGTH - RAY_START) * ratio);
 
           const remaining = ray.total - ray.value;
 
+          // Текстовая позиция: вдоль луча, подальше от конца
+          const labelR = RAY_LENGTH + 28;
+          const labelPos = polarToXY(ray.angle, labelR);
+          const subLabelPos = polarToXY(ray.angle, labelR + 16);
+
+          // Треугольный наконечник луча в стиле флэт-звезды
+          // Луч — как вытянутый ромб: широкий у основания, острый на конце
+          const rayAngleRad = ((ray.angle - 90) * Math.PI) / 180;
+          const perpRad = ((ray.angle) * Math.PI) / 180;
+          const baseHalfW = 9;
+          const tipPoint = polarToXY(ray.angle, RAY_LENGTH + 4);
+          const baseCenter = polarToXY(ray.angle, RAY_START);
+          const baseL = { x: baseCenter.x - baseHalfW * Math.cos(perpRad), y: baseCenter.y - baseHalfW * Math.sin(perpRad) };
+          const baseR = { x: baseCenter.x + baseHalfW * Math.cos(perpRad), y: baseCenter.y + baseHalfW * Math.sin(perpRad) };
+
+          const filledRatio = Math.min(ratio, 1);
+          const fillTip = polarToXY(ray.angle, RAY_START + (RAY_LENGTH + 4 - RAY_START) * filledRatio);
+          const fillBaseHW = baseHalfW * (1 - filledRatio * 0.6);
+          const fillBaseL = { x: baseCenter.x - fillBaseHW * Math.cos(perpRad), y: baseCenter.y - fillBaseHW * Math.sin(perpRad) };
+          const fillBaseR = { x: baseCenter.x + fillBaseHW * Math.cos(perpRad), y: baseCenter.y + fillBaseHW * Math.sin(perpRad) };
+
           return (
             <g key={ray.label}>
-              {/* Трек луча */}
-              <line
-                x1={trackStart.x} y1={trackStart.y}
-                x2={trackEnd.x} y2={trackEnd.y}
-                stroke="#E8E8E8"
-                strokeWidth="10"
-                strokeLinecap="round"
+              {/* Серый трек-луч */}
+              <polygon
+                points={`${baseL.x},${baseL.y} ${baseR.x},${baseR.y} ${tipPoint.x},${tipPoint.y}`}
+                fill="#EBEBEB"
               />
-              {/* Прогресс луча */}
-              <line
-                x1={trackStart.x} y1={trackStart.y}
-                x2={progEnd.x} y2={progEnd.y}
-                stroke="#FFD100"
-                strokeWidth="10"
-                strokeLinecap="round"
-                style={{ transition: 'none' }}
-              />
-              {/* Наконечник */}
-              <circle
-                cx={trackEnd.x}
-                cy={trackEnd.y}
-                r="4"
-                fill={ray.value / ray.total > 0.95 * progress ? '#FFD100' : '#E8E8E8'}
-              />
+              {/* Жёлтый прогресс */}
+              {filledRatio > 0.01 && (
+                <polygon
+                  points={`${fillBaseL.x},${fillBaseL.y} ${fillBaseR.x},${fillBaseR.y} ${fillTip.x},${fillTip.y}`}
+                  fill="#FFD100"
+                />
+              )}
 
-              {/* Текст: остаток */}
+              {/* Остаток: X из Y */}
               <text
-                x={textPos.x}
-                y={textPos.y - 5}
+                x={labelPos.x}
+                y={labelPos.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize="13"
+                fontSize="12.5"
                 fontWeight="700"
                 fontFamily="Golos Text, sans-serif"
                 fill="#141414"
               >
-                {formatValue(remaining, ray.unit)}
-                <tspan fontSize="10" fontWeight="500" fill="#8A8A8A"> {ray.unit}</tspan>
+                {formatVal(remaining, ray.unit)}
+                <tspan fontSize="9.5" fontWeight="500" fill="#8A8A8A"> из {formatVal(ray.total, ray.unit)}</tspan>
               </text>
               <text
-                x={subTextPos.x}
-                y={subTextPos.y - 5}
+                x={subLabelPos.x}
+                y={subLabelPos.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize="9.5"
+                fontSize="9"
                 fontFamily="Golos Text, sans-serif"
-                fill="#AAAAAA"
+                fill="#BBBBBB"
               >
                 {ray.label}
               </text>
@@ -175,90 +155,123 @@ export default function StarDiagram() {
           );
         })}
 
-        {/* Малые лучи — доп.услуги */}
-        {miniRays.map((mr) => {
-          const mStart = polarToXY(mr.angle, 28);
-          const mEnd = polarToXY(mr.angle, MINI_RAY_LENGTH);
-          const textPos = polarToXY(mr.angle, MINI_RAY_LENGTH + 18);
+        {/* ─── МАЛЫЕ ЛУЧИ — доп.опции ─── */}
+        {ALL_MINI.map((mr) => {
+          const active = !!activeOptions[mr.id];
+          const mS = polarToXY(mr.angle, MINI_START);
+          const mE = polarToXY(mr.angle, MINI_LENGTH);
+          const dotR = MINI_LENGTH + 6;
+          const dot = polarToXY(mr.angle, dotR);
 
           return (
-            <g key={mr.label} opacity={mr.active ? 1 : 0.35}>
+            <g
+              key={mr.id}
+              onClick={() => onToggleMini?.(mr.id)}
+              style={{ cursor: 'pointer' }}
+            >
+              {/* Пунктирная / сплошная линия */}
               <line
-                x1={mStart.x} y1={mStart.y}
-                x2={mEnd.x} y2={mEnd.y}
-                stroke={mr.active ? '#141414' : '#CCCCCC'}
-                strokeWidth="1.5"
+                x1={mS.x} y1={mS.y}
+                x2={mE.x} y2={mE.y}
+                stroke={active ? '#FFD100' : '#D0D0D0'}
+                strokeWidth={active ? '2' : '1.5'}
                 strokeLinecap="round"
-                strokeDasharray={mr.active ? 'none' : '3 3'}
+                strokeDasharray={active ? 'none' : '3 3'}
               />
+              {/* Точка-кнопка */}
               <circle
-                cx={mEnd.x}
-                cy={mEnd.y}
-                r="5"
-                fill={mr.active ? '#141414' : '#F0F0F0'}
-                stroke={mr.active ? '#141414' : '#CCCCCC'}
-                strokeWidth="1"
+                cx={dot.x} cy={dot.y} r="7"
+                fill={active ? '#FFD100' : '#F5F5F5'}
+                stroke={active ? '#FFD100' : '#D8D8D8'}
+                strokeWidth="1.5"
               />
-              <text
-                x={textPos.x}
-                y={textPos.y}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize="8.5"
-                fontFamily="Golos Text, sans-serif"
-                fill={mr.active ? '#141414' : '#AAAAAA'}
-              >
-                {mr.label}
-              </text>
+              {/* Внутренняя точка когда активна */}
+              {active && (
+                <circle cx={dot.x} cy={dot.y} r="2.5" fill="#141414" />
+              )}
             </g>
           );
         })}
 
-        {/* Центральная звезда */}
-        {/* Центральный круг */}
-        <circle cx={CX} cy={CY} r="46" fill="white" />
-        <circle cx={CX} cy={CY} r="44" fill="#FFD100" />
-
-        {/* Звезда (полярная, 4 луча) в центре */}
+        {/* ─── ЦЕНТРАЛЬНАЯ ЗВЕЗДА (флэт, как референс) ─── */}
         <g transform={`translate(${CX}, ${CY})`}>
-          {/* 4 маленьких луча звезды */}
+          {/* 4 больших острых луча звезды */}
           {[0, 90, 180, 270].map((a) => {
             const rad = ((a - 90) * Math.PI) / 180;
-            const x = 20 * Math.cos(rad);
-            const y = 20 * Math.sin(rad);
-            const cx1 = 8 * Math.cos(rad);
-            const cy1 = 8 * Math.sin(rad);
+            const perpRad = (a * Math.PI) / 180;
+            const tipX = 38 * Math.cos(rad);
+            const tipY = 38 * Math.sin(rad);
+            const hw = 7;
+            const bLX = -hw * Math.cos(perpRad);
+            const bLY = -hw * Math.sin(perpRad);
+            const bRX = hw * Math.cos(perpRad);
+            const bRY = hw * Math.sin(perpRad);
+            // тёмная грань (левая сторона)
+            const midRad = ((a - 45 - 90) * Math.PI) / 180;
+            const midX = 20 * Math.cos(rad) - 3 * Math.cos(perpRad);
+            const midY = 20 * Math.sin(rad) - 3 * Math.sin(perpRad);
             return (
-              <line key={a} x1="0" y1="0" x2={x} y2={y}
-                stroke="#141414" strokeWidth="2.5" strokeLinecap="round" />
+              <g key={a}>
+                {/* светлая грань */}
+                <polygon
+                  points={`${bLX},${bLY} 0,0 ${tipX},${tipY}`}
+                  fill="#FFD100"
+                  opacity="0.9"
+                />
+                {/* тёмная грань */}
+                <polygon
+                  points={`${bRX},${bRY} 0,0 ${tipX},${tipY}`}
+                  fill="#E6B800"
+                />
+              </g>
             );
           })}
-          {/* Диагональные малые лучи */}
+          {/* 4 малых луча по диагоналям */}
           {[45, 135, 225, 315].map((a) => {
             const rad = ((a - 90) * Math.PI) / 180;
-            const x = 10 * Math.cos(rad);
-            const y = 10 * Math.sin(rad);
+            const perpRad = (a * Math.PI) / 180;
+            const tipX = 22 * Math.cos(rad);
+            const tipY = 22 * Math.sin(rad);
+            const hw = 5;
+            const bLX = -hw * Math.cos(perpRad);
+            const bLY = -hw * Math.sin(perpRad);
+            const bRX = hw * Math.cos(perpRad);
+            const bRY = hw * Math.sin(perpRad);
             return (
-              <line key={a} x1="0" y1="0" x2={x} y2={y}
-                stroke="#141414" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+              <g key={a}>
+                <polygon points={`${bLX},${bLY} 0,0 ${tipX},${tipY}`} fill="#FFD100" opacity="0.85" />
+                <polygon points={`${bRX},${bRY} 0,0 ${tipX},${tipY}`} fill="#E6B800" />
+              </g>
             );
           })}
-          {/* Центральная точка */}
-          <circle cx="0" cy="0" r="3.5" fill="#141414" />
-        </g>
+          {/* Центральный круг */}
+          <circle cx="0" cy="0" r="26" fill="#FFF8D6" />
+          <circle cx="0" cy="0" r="22" fill="white" />
 
-        {/* Цена в центре */}
-        <text
-          x={CX}
-          y={CY + 16}
-          textAnchor="middle"
-          fontSize="11"
-          fontWeight="700"
-          fontFamily="Golos Text, sans-serif"
-          fill="#141414"
-        >
-          590 ₽/мес
-        </text>
+          {/* Цена — чётко по центру, ничего не загораживает */}
+          <text
+            x="0" y="-5"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="14"
+            fontWeight="900"
+            fontFamily="Golos Text, sans-serif"
+            fill="#141414"
+          >
+            590 ₽
+          </text>
+          <text
+            x="0" y="9"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="8"
+            fontWeight="500"
+            fontFamily="Golos Text, sans-serif"
+            fill="#8A8A8A"
+          >
+            в месяц
+          </text>
+        </g>
       </svg>
     </div>
   );
